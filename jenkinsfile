@@ -1,74 +1,30 @@
 pipeline{
+    
     agent any
-    tools{
-        jdk 'jdk17'
-        nodejs 'node23'
-    }
-    environment {
-        SCANNER_HOME=tool 'sonar-scanner'
-    }
-    stages {
-        stage('clean workspace'){
+    stages{
+        stage("Code Clone"){
             steps{
-                cleanWs()
+                git url: 'https://github.com/anurag1352/Swiggy-application.git', branch: 'master'
             }
         }
-        stage('Checkout from Git'){
+        stage("Build Image"){
             steps{
-                git 'https://github.com/divyasatpute/Swiggy-application.git'
+                sh "docker build -t swiggy-app ."
             }
         }
-        stage("Sonarqube Analysis "){
+        stage("Test"){
             steps{
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Swiggy \
-                    -Dsonar.projectKey=Swiggy '''
-                }
+                echo "Testing... Start"
             }
         }
-        stage("quality gate"){
-           steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token' 
-                }
-            } 
-        }
-        stage('Install Dependencies') {
-            steps {
-                sh "npm install"
-            }
-        }
-        stage('OWASP FS SCAN') {
-            steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-       
-        stage('TRIVY FS SCAN') {
-            steps {
-                sh "trivy fs . > trivyfs.txt"
-            }
-        }
-        stage("Docker Build & Push"){
+        stage("Scan image & files"){
             steps{
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){   
-                       sh "docker build -t swiggy ."
-                       sh "docker tag swiggy divyasatpute/swiggy:latest "
-                       sh "docker push divyasatpute/swiggy:latest "
-                    }
-                }
+                sh "trivy fs . -o results.json"
             }
         }
-        stage("TRIVY"){
+        stage("Deploy"){
             steps{
-                sh "trivy image kastrov/swiggy:latest > trivy.txt" 
-            }
-        }
-        stage('Deploy to container'){
-            steps{
-                sh 'docker run -d --name swiggy -p 3000:3000 divyasatpute/swiggy:latest'
+                sh "docker-compose down && docker-compose up -d"
             }
         }
     }
